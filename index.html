@@ -1,0 +1,949 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>BIOM Premium App</title>
+    
+    <link rel="manifest" href="manifest.json">
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts: Poppins -->
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <!-- Babel -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- Service Worker Registration -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js')
+                .then(registration => console.log('ServiceWorker registered'))
+                .catch(err => console.log('ServiceWorker error: ', err));
+            });
+        }
+    </script>
+
+    <style>
+      body {
+        font-family: 'Poppins', sans-serif;
+        background-color: #020617; /* Very deep slate for eye-care background */
+        margin: 0;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100dvh; 
+        overflow: hidden; 
+      } 
+      ::-webkit-scrollbar { width: 0px; background: transparent; }
+      
+      /* Dark mode glassmorphism */
+      .glass-nav { 
+          background: rgba(15, 23, 42, 0.85); 
+          backdrop-filter: blur(16px); 
+          -webkit-backdrop-filter: blur(16px); 
+          border-top: 1px solid rgba(255,255,255,0.05); 
+      }
+      .glass-modal { 
+          background: rgba(2, 6, 23, 0.75); 
+          backdrop-filter: blur(12px); 
+          -webkit-backdrop-filter: blur(12px); 
+      }
+      
+      .premium-shadow { box-shadow: 0 10px 40px -10px rgba(0,0,0,0.3); }
+      
+      /* Animation for Modals */
+      @keyframes popIn {
+          0% { opacity: 0; transform: scale(0.95); }
+          100% { opacity: 1; transform: scale(1); }
+      }
+      .animate-pop-in { animation: popIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+      
+      /* Calendar picker dark mode fix */
+      ::-webkit-calendar-picker-indicator { filter: invert(1); opacity: 0.6; cursor: pointer; }
+    </style>
+</head>
+<body>
+
+    <div id="root" class="w-full h-[100dvh] sm:w-[414px] sm:h-[896px]"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        function App() {
+          const [courses, setCourses] = useState(() => {
+             try { return JSON.parse(localStorage.getItem('biom_courses')) ||[]; } 
+             catch (e) { return[]; }
+          });
+          
+          const [admins, setAdmins] = useState(() => {
+             try { return JSON.parse(localStorage.getItem('biom_admins')) ||[]; } 
+             catch (e) { return []; }
+          });
+
+          const[activeTab, setActiveTab] = useState('courses');
+          const[sidebarOpen, setSidebarOpen] = useState(false);
+
+          // === Premium Custom Modal States ===
+          const [alertData, setAlertData] = useState({ show: false, title: '', message: '', type: 'success' });
+          const [confirmData, setConfirmData] = useState({ show: false, title: '', message: '', onConfirm: null });
+
+          const showAlert = (title, message, type = 'success') => setAlertData({ show: true, title, message, type });
+          const showConfirm = (title, message, onConfirm) => setConfirmData({ show: true, title, message, onConfirm });
+
+          useEffect(() => {
+            localStorage.setItem('biom_courses', JSON.stringify(courses));
+            localStorage.setItem('biom_admins', JSON.stringify(admins));
+          }, [courses, admins]);
+
+          const handleBackup = () => {
+            const data = { courses, admins };
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `BIOM_Backup_courses_${new Date().toLocaleDateString()}.json`;
+            a.click();
+            setSidebarOpen(false);
+            showAlert('সফল', 'ডেটা সফলভাবে আপনার মোবাইলে সেভ হয়েছে!', 'success');
+          };
+
+          const handleRestore = (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (event) => {
+              try {
+                const data = JSON.parse(event.target.result);
+                if (data.courses && data.admins) {
+                  setCourses(data.courses);
+                  setAdmins(data.admins);
+                  setSidebarOpen(false);
+                  showAlert('রিস্টোর সম্পন্ন', 'আপনার পুরো ডেটা আগের মতো রিস্টোর করা হয়েছে।', 'success');
+                } else {
+                  setSidebarOpen(false);
+                  showAlert('সমস্যা', 'এটি সঠিক ব্যাকআপ ফাইল নয়!', 'error');
+                }
+              } catch (err) {
+                setSidebarOpen(false);
+                showAlert('ত্রুটি', 'ফাইলটি পড়তে সমস্যা হচ্ছে!', 'error');
+              }
+            };
+            reader.readAsText(file);
+          };
+
+          return (
+            <div className="flex flex-col h-full bg-slate-900 w-full relative overflow-hidden sm:rounded-[40px] sm:shadow-[0_0_0_12px_#020617,0_20px_60px_rgba(0,0,0,0.5)]">
+              
+              {/* === Custom Alert Modal === */}
+              {alertData.show && (
+                <div className="fixed inset-0 z-[100] glass-modal flex items-center justify-center p-5">
+                  <div className="bg-slate-800 rounded-3xl p-6 max-w-sm w-full shadow-2xl border border-slate-700 text-center animate-pop-in">
+                    <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 shadow-inner ${alertData.type === 'success' ? 'bg-emerald-500/20 text-emerald-400' : alertData.type === 'error' ? 'bg-rose-500/20 text-rose-400' : 'bg-amber-500/20 text-amber-400'}`}>
+                      <i className={`fas ${alertData.type === 'success' ? 'fa-check-circle' : alertData.type === 'error' ? 'fa-times-circle' : 'fa-exclamation-triangle'} text-3xl`}></i>
+                    </div>
+                    <h3 className="text-xl font-bold text-white mb-2">{alertData.title}</h3>
+                    <p className="text-sm text-slate-300 mb-6">{alertData.message}</p>
+                    <button onClick={() => setAlertData({ show: false, title: '', message: '', type: 'success' })} className="w-full bg-indigo-600 text-white font-bold py-3.5 rounded-xl hover:bg-indigo-700 transition-colors shadow-lg">
+                      ঠিক আছে
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* === Custom Confirm Modal === */}
+              {confirmData.show && (
+                <div className="fixed inset-0 z-[100] glass-modal flex items-center justify-center p-5">
+                  <div className="bg-slate-800 rounded-3xl p-6 max-w-sm w-full shadow-2xl border border-slate-700 text-center animate-pop-in">
+                    <div className="w-16 h-16 bg-rose-500/20 text-rose-400 rounded-full flex items-center justify-center mx-auto mb-4 shadow-inner">
+                      <i className="fas fa-trash-alt text-2xl"></i>
+                    </div>
+                    <h3 className="text-xl font-bold text-white mb-2">{confirmData.title}</h3>
+                    <p className="text-sm text-slate-300 mb-6">{confirmData.message}</p>
+                    <div className="flex gap-3">
+                      <button onClick={() => setConfirmData({ show: false, title: '', message: '', onConfirm: null })} className="flex-1 bg-slate-700 text-slate-200 font-bold py-3.5 rounded-xl hover:bg-slate-600 transition-colors">
+                        বাতিল
+                      </button>
+                      <button onClick={() => { confirmData.onConfirm(); setConfirmData({ show: false, title: '', message: '', onConfirm: null }); }} className="flex-1 bg-rose-600 text-white font-bold py-3.5 rounded-xl hover:bg-rose-700 transition-colors shadow-lg">
+                        ডিলিট করুন
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="bg-gradient-to-r from-indigo-700 via-purple-700 to-indigo-900 text-white flex justify-between items-center px-5 py-4 shadow-md z-20 relative overflow-hidden">
+                <div className="absolute top-0 left-0 w-full h-full bg-white opacity-5 mix-blend-overlay"></div>
+                
+                <div className="font-extrabold text-2xl tracking-widest z-10 flex items-center gap-2">
+                    <div className="w-8 h-8 bg-white/20 rounded-lg flex items-center justify-center shadow-inner backdrop-blur-sm">
+                        <span className="text-white text-lg"><i className="fas fa-layer-group"></i></span>
+                    </div>
+                    BIOM
+                </div>
+                <button onClick={() => setSidebarOpen(true)} className="p-2 bg-white/10 hover:bg-white/20 backdrop-blur-md rounded-full transition-all z-10 w-10 h-10 flex items-center justify-center">
+                  <i className="fas fa-ellipsis-v text-lg"></i>
+                </button>
+              </div>
+
+              {sidebarOpen && (
+                <div className="absolute inset-0 glass-modal z-30 transition-opacity" onClick={() => setSidebarOpen(false)}></div>
+              )}
+
+              <div className={`absolute top-0 right-0 h-full w-72 bg-slate-900 shadow-2xl z-40 transform transition-transform duration-400 ease-in-out flex flex-col rounded-l-[32px] border-l border-slate-700 ${sidebarOpen ? 'translate-x-0' : 'translate-x-full'}`}>
+                <div className="p-6 bg-slate-800 text-white flex justify-between items-center rounded-tl-[32px] border-b border-slate-700">
+                  <span className="font-bold text-xl tracking-wide">Menu</span>
+                  <button onClick={() => setSidebarOpen(false)} className="w-8 h-8 bg-slate-700 rounded-full flex items-center justify-center hover:bg-slate-600"><i className="fas fa-times"></i></button>
+                </div>
+                <div className="flex-1 overflow-y-auto p-6 space-y-4">
+                  <button onClick={handleBackup} className="w-full flex items-center gap-4 p-4 bg-slate-800 border border-slate-700 text-indigo-400 rounded-2xl hover:bg-slate-700 transition-colors">
+                    <div className="w-10 h-10 bg-indigo-500/20 rounded-full flex items-center justify-center"><i className="fas fa-cloud-download-alt text-lg"></i></div> 
+                    <span className="font-semibold text-slate-200">Backup Data</span>
+                  </button>
+                  
+                  <div className="relative w-full">
+                    <input type="file" accept=".json" onChange={handleRestore} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
+                    <div className="w-full flex items-center gap-4 p-4 bg-slate-800 border border-slate-700 text-emerald-400 rounded-2xl hover:bg-slate-700 transition-colors">
+                      <div className="w-10 h-10 bg-emerald-500/20 rounded-full flex items-center justify-center"><i className="fas fa-cloud-upload-alt text-lg"></i></div> 
+                      <span className="font-semibold text-slate-200">Restore Data</span>
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="p-6 text-center text-sm text-slate-400 bg-slate-800 rounded-bl-[32px] border-t border-slate-700">
+                  <div className="w-12 h-12 bg-slate-700 rounded-full flex items-center justify-center mx-auto mb-3">
+                    <i className="fas fa-bolt text-indigo-400 text-xl"></i>
+                  </div>
+                  <p className="font-bold text-white mb-1">App For Trainer of BIOM</p>
+                  <p className="text-xs mb-3 text-slate-400">App by Muhammad Roni Biswas<br/>(20th batch)</p>
+                  <a href="#" className="inline-block px-4 py-2 bg-indigo-500/20 text-indigo-400 rounded-full text-xs font-semibold mb-3 hover:bg-indigo-500/30 transition border border-indigo-500/30">
+                    <i className="fab fa-facebook-messenger mr-1"></i> @mdroni1702
+                  </a>
+                  <p className="text-[10px] tracking-widest text-slate-500 uppercase">Version 2.0 Eye-Care</p>
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-y-auto pb-32 relative px-4 pt-4 z-10">
+                {activeTab === 'courses' && <CoursesTab courses={courses} setCourses={setCourses} admins={admins} showConfirm={showConfirm} />}
+                {activeTab === 'admins' && <AdminsTab admins={admins} setAdmins={setAdmins} courses={courses} showAlert={showAlert} />}
+                {activeTab === 'position' && <PositionTab courses={courses} admins={admins} />}
+              </div>
+
+              <div className="absolute bottom-4 left-4 right-4 z-20">
+                <div className="glass-nav rounded-full flex justify-around items-center h-16 premium-shadow px-2">
+                  <NavButton label="Courses" icon="fa-book" active={activeTab === 'courses'} onClick={() => setActiveTab('courses')} />
+                  <NavButton label="Admins" icon="fa-user-shield" active={activeTab === 'admins'} onClick={() => setActiveTab('admins')} />
+                  <NavButton label="Position" icon="fa-trophy" active={activeTab === 'position'} onClick={() => setActiveTab('position')} />
+                </div>
+              </div>
+            </div>
+          );
+        }
+
+        const NavButton = ({ label, icon, active, onClick }) => (
+          <button onClick={onClick} className={`relative flex-1 h-12 flex flex-col items-center justify-center transition-all duration-300 rounded-full mx-1 ${active ? 'bg-indigo-600 text-white shadow-md shadow-indigo-900/50 transform -translate-y-1' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'}`}>
+            <i className={`fas ${icon} ${active ? 'text-lg mb-0.5' : 'text-md mb-1'}`}></i>
+            {active && <span className="text-[10px] font-semibold tracking-wide">{label}</span>}
+          </button>
+        );
+
+        /* ============================ COURSES TAB ============================ */
+        function CoursesTab({ courses, setCourses, admins, showConfirm }) {
+          const[search, setSearch] = useState('');
+          const [showAddCourse, setShowAddCourse] = useState(false);
+          const [courseName, setCourseName] = useState('');
+          const[batchForm, setBatchForm] = useState(null);
+
+          const addCourse = (e) => {
+            e.preventDefault();
+            if (!courseName.trim()) return;
+            setCourses([{ id: Date.now().toString(), name: courseName, batches: [] }, ...courses]);
+            setCourseName('');
+            setShowAddCourse(false);
+          };
+
+          const deleteCourse = (id) => {
+            showConfirm("সতর্কতা", "আপনি কি নিশ্চিত যে এই কোর্সটি স্থায়ীভাবে ডিলিট করতে চান?", () => {
+                setCourses(courses.filter(c => c.id !== id));
+            });
+          };
+
+          const filteredCourses = courses.filter(c => c.name.toLowerCase().includes(search.toLowerCase()));
+
+          return (
+            <div className="space-y-5">
+              <div className="flex gap-3 items-center sticky top-0 z-10 pt-2 pb-2 bg-slate-900/90 backdrop-blur-sm">
+                <div className="relative flex-1">
+                  <i className="fas fa-search absolute left-4 top-3.5 text-slate-400"></i>
+                  <input type="text" placeholder="Search courses..." value={search} onChange={(e) => setSearch(e.target.value)} className="w-full pl-11 pr-4 py-3 bg-slate-800 text-slate-200 border border-slate-700 rounded-full focus:ring-2 focus:ring-indigo-500 outline-none premium-shadow text-sm" />
+                </div>
+                <button onClick={() => setShowAddCourse(true)} className="bg-indigo-600 text-white w-12 h-12 rounded-full shadow-lg shadow-indigo-900/50 hover:scale-105 transition-transform flex items-center justify-center flex-shrink-0">
+                  <i className="fas fa-plus text-xl"></i>
+                </button>
+              </div>
+
+              {showAddCourse && (
+                <form onSubmit={addCourse} className="bg-slate-800 p-6 rounded-[24px] premium-shadow border border-slate-700 animate-pop-in">
+                  <div className="flex justify-between items-center mb-4">
+                    <h3 className="font-bold text-white text-lg">New Course</h3>
+                    <button type="button" onClick={() => setShowAddCourse(false)} className="w-8 h-8 bg-slate-700 text-slate-300 rounded-full flex items-center justify-center"><i className="fas fa-times"></i></button>
+                  </div>
+                  <input type="text" placeholder="Enter course name" value={courseName} onChange={(e) => setCourseName(e.target.value)} className="w-full border border-slate-600 bg-slate-700 text-white p-3 rounded-xl mb-4 focus:bg-slate-600 focus:border-indigo-500 outline-none text-sm transition-all" required autoFocus />
+                  <button type="submit" className="w-full py-3 bg-indigo-600 text-white rounded-xl font-semibold shadow-md hover:bg-indigo-700 transition-colors">Create Course</button>
+                </form>
+              )}
+
+              <div className="space-y-4">
+                {filteredCourses.map(course => (
+                  <div key={course.id} className="bg-slate-800 rounded-[24px] premium-shadow border border-slate-700 overflow-hidden transition-all">
+                    <div className="p-5 flex items-center justify-between border-b border-slate-700 bg-slate-800/80">
+                      <button onClick={() => setBatchForm(course.id)} className="w-10 h-10 rounded-full bg-indigo-500/20 text-indigo-400 flex items-center justify-center hover:bg-indigo-500/40 transition-colors">
+                        <i className="fas fa-plus"></i>
+                      </button>
+                      <h3 className="font-bold text-lg text-white text-center flex-1 px-2 line-clamp-1">{course.name}</h3>
+                      <div className="flex items-center gap-2">
+                        <span className="bg-slate-700 text-slate-300 text-[10px] font-bold px-3 py-1.5 rounded-full border border-slate-600">{course.batches.length} Batches</span>
+                        <button onClick={() => deleteCourse(course.id)} className="w-8 h-8 rounded-full text-rose-400 hover:bg-rose-500/20 transition-colors flex items-center justify-center">
+                          <i className="fas fa-trash-alt"></i>
+                        </button>
+                      </div>
+                    </div>
+
+                    {batchForm === course.id && (
+                       <BatchForm courseId={course.id} courses={courses} setCourses={setCourses} admins={admins} onClose={() => setBatchForm(null)} />
+                    )}
+
+                    <div className="p-3 space-y-2 bg-slate-900/40">
+                      {course.batches.length === 0 && !batchForm ? (
+                        <p className="text-center text-xs text-slate-500 py-3">No batches created yet.</p>
+                      ) : (
+                        course.batches.map(batch => (
+                          <BatchItem key={batch.id} courseId={course.id} batch={batch} courses={courses} setCourses={setCourses} admins={admins} showConfirm={showConfirm} />
+                        ))
+                      )}
+                    </div>
+                  </div>
+                ))}
+                {filteredCourses.length === 0 && !showAddCourse && (
+                   <div className="text-center mt-16">
+                      <div className="w-24 h-24 bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-4 border border-slate-700">
+                        <i className="fas fa-folder-open text-4xl text-slate-500"></i>
+                      </div>
+                      <p className="text-slate-400 font-medium">No courses found</p>
+                   </div>
+                )}
+              </div>
+            </div>
+          );
+        }
+
+        function BatchForm({ courseId, batchData = null, courses, setCourses, admins, onClose }) {
+          const[formData, setFormData] = useState(batchData || {
+            batchNumber: '', batchStartDate: '', admissionStartDate: '', mainTeacher: '', status: 'Coming Soon', selectedAdmins: []
+          });
+          const[showAdminSelect, setShowAdminSelect] = useState(false);
+
+          const toggleAdmin = (adminId) => {
+            let newAdmins =[...formData.selectedAdmins];
+            const exists = newAdmins.find(a => a.id === adminId);
+            if (exists) {
+              newAdmins = newAdmins.filter(a => a.id !== adminId);
+            } else {
+              newAdmins.push({ id: adminId, admissionCount: '' });
+            }
+            setFormData({ ...formData, selectedAdmins: newAdmins });
+          };
+
+          const handleSave = (e) => {
+            e.preventDefault();
+            if (!formData.batchNumber) return;
+            
+            const updatedCourses = courses.map(c => {
+              if (c.id === courseId) {
+                if (batchData) {
+                  return { ...c, batches: c.batches.map(b => b.id === batchData.id ? { ...formData } : b) };
+                } else {
+                  return { ...c, batches:[{ ...formData, id: Date.now().toString(), createdAt: new Date().toLocaleDateString() }, ...c.batches] };
+                }
+              }
+              return c;
+            });
+            setCourses(updatedCourses);
+            onClose();
+          };
+
+          return (
+            <form onSubmit={handleSave} className="m-3 p-5 bg-slate-800 border border-indigo-500/30 rounded-2xl shadow-lg">
+              <h4 className="font-bold text-indigo-300 mb-4 text-sm flex items-center gap-2">
+                <i className="fas fa-layer-group text-indigo-400"></i> {batchData ? 'Edit Batch' : 'Add New Batch'}
+              </h4>
+              <div className="grid grid-cols-2 gap-3 mb-3">
+                <input type="text" placeholder="Batch No." value={formData.batchNumber} onChange={e => setFormData({...formData, batchNumber: e.target.value})} className="bg-slate-700 border border-slate-600 text-white p-2.5 rounded-xl text-sm w-full focus:bg-slate-600 focus:border-indigo-500 outline-none" required />
+                <input type="text" placeholder="Main Teacher" value={formData.mainTeacher} onChange={e => setFormData({...formData, mainTeacher: e.target.value})} className="bg-slate-700 border border-slate-600 text-white p-2.5 rounded-xl text-sm w-full focus:bg-slate-600 focus:border-indigo-500 outline-none" required />
+                
+                <div className="relative">
+                  <label className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1 block pl-1">Batch Start</label>
+                  <input type="date" value={formData.batchStartDate} onChange={e => setFormData({...formData, batchStartDate: e.target.value})} className="bg-slate-700 border border-slate-600 text-white p-2.5 rounded-xl text-xs w-full focus:bg-slate-600 focus:border-indigo-500 outline-none" />
+                </div>
+                <div className="relative">
+                  <label className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1 block pl-1">Admission</label>
+                  <input type="date" value={formData.admissionStartDate} onChange={e => setFormData({...formData, admissionStartDate: e.target.value})} className="bg-slate-700 border border-slate-600 text-white p-2.5 rounded-xl text-xs w-full focus:bg-slate-600 focus:border-indigo-500 outline-none" />
+                </div>
+              </div>
+              
+              <label className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1 block pl-1 mt-3">Status</label>
+              <select value={formData.status} onChange={e => setFormData({...formData, status: e.target.value})} className="w-full bg-slate-700 border border-slate-600 text-white p-2.5 rounded-xl text-sm mb-4 focus:bg-slate-600 focus:border-indigo-500 outline-none">
+                <option value="Coming Soon">⏳ Coming Soon</option>
+                <option value="Ongoing">🟢 Ongoing</option>
+                <option value="End">🔴 End</option>
+              </select>
+
+              <div className="mb-5 relative">
+                <label className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1 block pl-1">Assign Admins</label>
+                <button type="button" onClick={() => setShowAdminSelect(!showAdminSelect)} className="w-full bg-slate-700 border border-slate-600 text-white p-3 rounded-xl flex justify-between items-center text-sm shadow-sm hover:border-indigo-400 transition-colors">
+                  <span className="font-medium">{formData.selectedAdmins.length > 0 ? `${formData.selectedAdmins.length} Selected` : 'Choose Admins'}</span>
+                  <i className={`fas fa-chevron-${showAdminSelect ? 'up' : 'down'} text-slate-400`}></i>
+                </button>
+                {showAdminSelect && (
+                  <div className="mt-2 max-h-40 overflow-y-auto bg-slate-800 border border-slate-600 rounded-xl shadow-2xl p-2 space-y-1 absolute z-20 w-[calc(100%-0rem)]">
+                    {admins.map(admin => (
+                      <label key={admin.id} className="flex items-center gap-3 p-2 hover:bg-slate-700 rounded-lg cursor-pointer text-sm transition-colors border border-transparent">
+                        <input type="checkbox" checked={!!formData.selectedAdmins.find(a => a.id === admin.id)} onChange={() => toggleAdmin(admin.id)} className="w-4 h-4 text-indigo-500 bg-slate-900 border-slate-500 rounded focus:ring-indigo-500" />
+                        <span className="font-medium text-slate-200">{admin.name}</span>
+                      </label>
+                    ))}
+                    {admins.length === 0 && <p className="text-xs text-slate-400 text-center py-2">No admins available.</p>}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-700">
+                <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-semibold text-slate-300 bg-slate-700 hover:bg-slate-600 rounded-xl transition-colors">Cancel</button>
+                <button type="submit" className="px-6 py-2 text-sm font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-md transition-colors">Save Batch</button>
+              </div>
+            </form>
+          );
+        }
+
+        function BatchItem({ courseId, batch, courses, setCourses, admins, showConfirm }) {
+          const[expanded, setExpanded] = useState(false);
+          const[isEditing, setIsEditing] = useState(false);
+          const[activeAdminInput, setActiveAdminInput] = useState(null);
+          const[tempAdmissionCount, setTempAdmissionCount] = useState('');
+          const[showAdminDetailsModal, setShowAdminDetailsModal] = useState(null);
+
+          const deleteBatch = (e) => {
+            e.stopPropagation();
+            showConfirm("সতর্কতা", "আপনি কি নিশ্চিত যে এই ব্যাচটি স্থায়ীভাবে ডিলিট করতে চান?", () => {
+                const updatedCourses = courses.map(c => {
+                    if (c.id === courseId) return { ...c, batches: c.batches.filter(b => b.id !== batch.id) };
+                    return c;
+                });
+                setCourses(updatedCourses);
+            });
+          };
+
+          const saveAdmissionCount = (adminId) => {
+            const updatedCourses = courses.map(c => {
+              if (c.id === courseId) {
+                const uBatches = c.batches.map(b => {
+                  if (b.id === batch.id) {
+                    const uAdmins = b.selectedAdmins.map(a => 
+                      a.id === adminId ? { ...a, admissionCount: tempAdmissionCount } : a
+                    );
+                    return { ...b, selectedAdmins: uAdmins };
+                  }
+                  return b;
+                });
+                return { ...c, batches: uBatches };
+              }
+              return c;
+            });
+            setCourses(updatedCourses);
+            setActiveAdminInput(null);
+          };
+
+          if (isEditing) {
+            return <BatchForm courseId={courseId} batchData={batch} courses={courses} setCourses={setCourses} admins={admins} onClose={() => setIsEditing(false)} />;
+          }
+
+          const statusStyles = {
+            'Coming Soon': 'bg-amber-500/20 text-amber-400 border-amber-500/30',
+            'Ongoing': 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
+            'End': 'bg-rose-500/20 text-rose-400 border-rose-500/30'
+          };
+
+          return (
+            <div className="bg-slate-800 rounded-xl shadow-sm border border-slate-700 overflow-hidden transition-all duration-300">
+              <div className="p-3 flex justify-between items-center cursor-pointer hover:bg-slate-700 transition-colors" onClick={() => setExpanded(!expanded)}>
+                <div className="flex items-center gap-3">
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${expanded ? 'bg-indigo-500/20 text-indigo-400' : 'bg-slate-700 text-slate-400'} transition-colors`}>
+                    <i className={`fas fa-chevron-${expanded ? 'down' : 'right'} text-sm`}></i>
+                  </div>
+                  <span className="font-bold text-white tracking-wide">Batch {batch.batchNumber}</span>
+                </div>
+                <span className={`text-[10px] font-bold px-3 py-1 rounded-full border ${statusStyles[batch.status]}`}>
+                  {batch.status}
+                </span>
+              </div>
+
+              {expanded && (
+                <div className="p-4 border-t border-slate-700 bg-slate-900/30">
+                  <div className="flex justify-between items-start mb-5 bg-slate-800 p-3 rounded-xl border border-slate-700 shadow-sm">
+                     <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm flex-1">
+                        <div><span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-0.5">Main Teacher</span> <span className="font-semibold text-slate-200">{batch.mainTeacher}</span></div>
+                        <div className="text-right pr-2">
+                            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-0.5">Timeline</span> 
+                            <span className="text-xs font-medium text-slate-300">{batch.batchStartDate || '--'} to {batch.admissionStartDate || '--'}</span>
+                        </div>
+                     </div>
+                     <div className="flex flex-col gap-1 border-l border-slate-700 pl-2">
+                        <button onClick={() => setIsEditing(true)} className="w-8 h-8 rounded-lg bg-indigo-500/20 text-indigo-400 hover:bg-indigo-600 hover:text-white transition-colors flex items-center justify-center"><i className="fas fa-pen text-xs"></i></button>
+                        <button onClick={deleteBatch} className="w-8 h-8 rounded-lg bg-rose-500/20 text-rose-400 hover:bg-rose-600 hover:text-white transition-colors flex items-center justify-center"><i className="fas fa-trash text-xs"></i></button>
+                     </div>
+                  </div>
+
+                  <div>
+                    <h4 className="font-bold text-white mb-3 text-sm flex items-center justify-between">
+                      Admins <span className="bg-slate-700 text-slate-300 text-xs px-2 py-0.5 rounded-md">{batch.selectedAdmins.length}</span>
+                    </h4>
+                    
+                    <div className="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden shadow-sm">
+                      {batch.selectedAdmins.length === 0 ? (
+                        <p className="p-4 text-center text-xs text-slate-500">No admins assigned.</p>
+                      ) : (
+                        <div className="divide-y divide-slate-700">
+                            {batch.selectedAdmins.map(bAdmin => {
+                            const fullAdmin = admins.find(a => a.id === bAdmin.id);
+                            if(!fullAdmin) return null;
+                            return (
+                                <div key={bAdmin.id} className="p-3 flex items-center justify-between hover:bg-slate-700/50 transition-colors">
+                                <div className="flex items-center gap-3 flex-1">
+                                    <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-500 text-white flex items-center justify-center text-xs font-bold shadow-sm">
+                                        {fullAdmin.name.charAt(0).toUpperCase()}
+                                    </div>
+                                    <div>
+                                        <button onClick={() => setShowAdminDetailsModal(fullAdmin)} className="font-bold text-slate-200 hover:text-indigo-400 text-sm block text-left transition-colors">
+                                        {fullAdmin.name}
+                                        </button>
+                                        {bAdmin.admissionCount && (
+                                        <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/20 px-2 py-0.5 rounded-md mt-0.5 inline-block border border-emerald-500/20">
+                                            {bAdmin.admissionCount} Admissions
+                                        </span>
+                                        )}
+                                    </div>
+                                </div>
+                                
+                                <div className="relative flex items-center">
+                                    {activeAdminInput === bAdmin.id ? (
+                                    <div className="flex items-center gap-1 bg-slate-800 border border-slate-600 p-1.5 rounded-xl premium-shadow absolute right-0 z-10 w-48">
+                                        <input 
+                                        type="number" 
+                                        placeholder="Count" 
+                                        value={tempAdmissionCount} 
+                                        onChange={(e) => setTempAdmissionCount(e.target.value)}
+                                        className="w-full text-sm bg-slate-700 text-white border border-slate-600 p-1.5 rounded-lg outline-none focus:border-indigo-500" 
+                                        autoFocus
+                                        />
+                                        <button onClick={() => saveAdmissionCount(bAdmin.id)} className="bg-emerald-600 text-white w-8 h-8 rounded-lg flex items-center justify-center shadow-sm hover:bg-emerald-700"><i className="fas fa-check"></i></button>
+                                        <button onClick={() => setActiveAdminInput(null)} className="bg-slate-700 text-slate-300 w-8 h-8 rounded-lg flex items-center justify-center hover:bg-slate-600"><i className="fas fa-times"></i></button>
+                                    </div>
+                                    ) : (
+                                    <button 
+                                        onClick={() => {
+                                        setActiveAdminInput(bAdmin.id);
+                                        setTempAdmissionCount(bAdmin.admissionCount || '');
+                                        }} 
+                                        className="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-indigo-400 hover:bg-indigo-500/20 rounded-lg transition-colors"
+                                    >
+                                        <i className="fas fa-edit text-sm"></i>
+                                    </button>
+                                    )}
+                                </div>
+                                </div>
+                            );
+                            })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="text-[9px] font-medium text-slate-500 text-center mt-4 uppercase tracking-wider">Created: {batch.createdAt}</div>
+                </div>
+              )}
+
+              {showAdminDetailsModal && (
+                <div className="fixed inset-0 glass-modal z-50 flex items-center justify-center p-4 animate-pop-in">
+                  <div className="bg-slate-800 rounded-[32px] shadow-2xl w-full max-w-sm overflow-hidden relative border border-slate-700">
+                    <div className="bg-gradient-to-r from-indigo-600 to-purple-600 p-6 text-center relative">
+                      <button onClick={() => setShowAdminDetailsModal(null)} className="absolute top-4 right-4 w-8 h-8 bg-white/20 rounded-full text-white flex items-center justify-center hover:bg-white/30 backdrop-blur-sm transition-colors"><i className="fas fa-times"></i></button>
+                      <div className="w-20 h-20 bg-slate-900 rounded-full mx-auto flex items-center justify-center shadow-lg mb-3 border-2 border-indigo-400/30">
+                        <span className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-purple-400">
+                            {showAdminDetailsModal.name.charAt(0).toUpperCase()}
+                        </span>
+                      </div>
+                      <h3 className="font-bold text-xl text-white">{showAdminDetailsModal.name}</h3>
+                      <p className="text-indigo-200 text-sm font-medium">Administrator</p>
+                    </div>
+                    <div className="p-6 space-y-4 bg-slate-900/50">
+                      <div className="bg-slate-800 p-4 rounded-2xl shadow-sm border border-slate-700">
+                        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Mobile</span>
+                        <div className="font-semibold text-slate-200 flex items-center gap-2"><i className="fas fa-phone-alt text-indigo-400"></i> {showAdminDetailsModal.mobile}</div>
+                      </div>
+                      <div className="bg-slate-800 p-4 rounded-2xl shadow-sm border border-slate-700">
+                        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Address</span>
+                        <div className="font-medium text-slate-300 text-sm flex items-start gap-2"><i className="fas fa-map-marker-alt text-indigo-400 mt-1"></i> {showAdminDetailsModal.address}</div>
+                      </div>
+                      {showAdminDetailsModal.identity && (
+                      <div className="bg-slate-800 p-4 rounded-2xl shadow-sm border border-slate-700">
+                        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">ID Number</span>
+                        <div className="font-mono text-slate-200 font-bold flex items-center gap-2"><i className="fas fa-id-card text-indigo-400"></i> {showAdminDetailsModal.identity}</div>
+                      </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        }
+
+        /* ============================ ADMINS TAB ============================ */
+        function AdminsTab({ admins, setAdmins, courses, showAlert }) {
+          const[search, setSearch] = useState('');
+          const[showForm, setShowForm] = useState(false);
+          const[editingAdmin, setEditingAdmin] = useState(null);
+          const[selectedAdminDetail, setSelectedAdminDetail] = useState(null);
+          const [formData, setFormData] = useState({ name: '', address: '', mobile: '', identity: '' });
+
+          const handleSave = (e) => {
+            e.preventDefault();
+
+            if (formData.identity && formData.identity.trim() !== '') {
+              const isDuplicate = admins.some(a => 
+                a.identity === formData.identity && 
+                (!editingAdmin || a.id !== editingAdmin.id)
+              );
+              
+              if (isDuplicate) {
+                showAlert('সতর্কতা', 'এই এডমিনের আইডি পূর্বেই সংরক্ষণ করা হয়েছে। পুনরায় যাচাই করুন।', 'warning');
+                return; 
+              }
+            }
+
+            if (editingAdmin) {
+              setAdmins(admins.map(a => a.id === editingAdmin.id ? { ...formData, id: a.id } : a));
+            } else {
+              setAdmins([{ ...formData, id: Date.now().toString() }, ...admins]);
+            }
+            setShowForm(false);
+            setEditingAdmin(null);
+            setFormData({ name: '', address: '', mobile: '', identity: '' });
+          };
+
+          const openEdit = (admin) => {
+            setFormData(admin);
+            setEditingAdmin(admin);
+            setShowForm(true);
+            setSelectedAdminDetail(null);
+          };
+
+          const getAdminWorkDetails = (adminId) => {
+            let works =[];
+            courses.forEach(course => {
+              let activeBatches =[];
+              course.batches.forEach(batch => {
+                if (batch.selectedAdmins.find(a => a.id === adminId)) {
+                  activeBatches.push(batch.batchNumber);
+                }
+              });
+              if (activeBatches.length > 0) {
+                works.push({ courseName: course.name, batches: activeBatches });
+              }
+            });
+            return works;
+          };
+
+          const filteredAdmins = admins.filter(a => a.name.toLowerCase().includes(search.toLowerCase()));
+
+          return (
+            <div className="space-y-5">
+              <div className="flex justify-between items-center bg-gradient-to-r from-slate-800 to-slate-900 p-5 rounded-[24px] premium-shadow border border-slate-700 text-white relative overflow-hidden">
+                <div className="absolute right-0 top-0 w-32 h-32 bg-white opacity-5 rounded-full -mr-10 -mt-10"></div>
+                <div>
+                    <span className="block text-slate-400 text-xs font-bold uppercase tracking-wider mb-1">My Total </span>
+                    <span className="font-bold text-2xl text-white">Admins</span>
+                </div>
+                <div className="bg-indigo-500/20 backdrop-blur-md border border-indigo-500/30 text-indigo-400 w-14 h-14 rounded-2xl flex items-center justify-center font-extrabold text-2xl shadow-inner">
+                    {admins.length}
+                </div>
+              </div>
+
+              <div className="flex gap-3 items-center">
+                <div className="relative flex-1">
+                  <i className="fas fa-search absolute left-4 top-3.5 text-slate-400"></i>
+                  <input type="text" placeholder="Search admins..." value={search} onChange={(e) => setSearch(e.target.value)} className="w-full pl-11 pr-4 py-3 bg-slate-800 text-white border border-slate-700 rounded-full focus:ring-2 focus:ring-indigo-500 outline-none premium-shadow text-sm" />
+                </div>
+                <button onClick={() => { setShowForm(true); setEditingAdmin(null); setFormData({ name: '', address: '', mobile: '', identity: '' }); }} className="bg-indigo-600 text-white w-12 h-12 rounded-full shadow-lg shadow-indigo-900/50 hover:scale-105 transition-transform flex items-center justify-center flex-shrink-0">
+                  <i className="fas fa-user-plus text-lg"></i>
+                </button>
+              </div>
+
+              {showForm && (
+                <form onSubmit={handleSave} className="bg-slate-800 p-6 rounded-[24px] premium-shadow border border-slate-700 animate-pop-in">
+                  <h3 className="font-bold text-white text-lg mb-4 flex items-center gap-2">
+                    <i className="fas fa-id-badge text-indigo-400"></i> {editingAdmin ? 'Update Profile' : 'New Admin'}
+                  </h3>
+                  <div className="space-y-3">
+                    <input type="text" placeholder="Full Name" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full bg-slate-700 border border-slate-600 text-white p-3 rounded-xl text-sm focus:bg-slate-600 focus:border-indigo-500 outline-none" required />
+                    <input type="tel" placeholder="Mobile Number" value={formData.mobile} onChange={e => setFormData({...formData, mobile: e.target.value})} className="w-full bg-slate-700 border border-slate-600 text-white p-3 rounded-xl text-sm focus:bg-slate-600 focus:border-indigo-500 outline-none" required />
+                    <input type="text" placeholder="Complete Address" value={formData.address} onChange={e => setFormData({...formData, address: e.target.value})} className="w-full bg-slate-700 border border-slate-600 text-white p-3 rounded-xl text-sm focus:bg-slate-600 focus:border-indigo-500 outline-none" required />
+                    <input type="text" placeholder="ID Number (Optional)" value={formData.identity} onChange={e => setFormData({...formData, identity: e.target.value})} className="w-full bg-slate-700 border border-slate-600 text-white p-3 rounded-xl text-sm focus:bg-slate-600 focus:border-indigo-500 outline-none" />
+                  </div>
+                  <div className="flex justify-end gap-3 pt-5 mt-2 border-t border-slate-700">
+                    <button type="button" onClick={() => setShowForm(false)} className="px-5 py-2.5 text-sm font-semibold text-slate-300 bg-slate-700 rounded-xl hover:bg-slate-600 transition-colors">Cancel</button>
+                    <button type="submit" className="px-6 py-2.5 text-sm font-semibold bg-indigo-600 text-white rounded-xl shadow-md hover:bg-indigo-700 transition-colors">Save Profile</button>
+                  </div>
+                </form>
+              )}
+
+              {selectedAdminDetail ? (
+                <div className="bg-slate-800 rounded-[24px] premium-shadow border border-slate-700 overflow-hidden animate-pop-in">
+                   <div className="p-6 border-b border-slate-700 bg-slate-800/80 flex justify-between items-start">
+                      <div className="flex gap-4 items-center">
+                        <div className="w-14 h-14 bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 rounded-2xl flex items-center justify-center text-2xl font-bold shadow-lg">
+                            {selectedAdminDetail.name.charAt(0).toUpperCase()}
+                        </div>
+                        <div>
+                            <h2 className="text-xl font-bold text-white">{selectedAdminDetail.name}</h2>
+                            <span className="text-xs font-bold text-emerald-400 bg-emerald-500/20 px-2 py-1 rounded-md mt-1 inline-block border border-emerald-500/20">Verified Admin</span>
+                        </div>
+                      </div>
+                      <div className="flex flex-col gap-2">
+                        <button onClick={() => setSelectedAdminDetail(null)} className="w-8 h-8 rounded-full bg-slate-700 text-slate-300 flex items-center justify-center hover:bg-slate-600"><i className="fas fa-times"></i></button>
+                        <button onClick={() => openEdit(selectedAdminDetail)} className="w-8 h-8 rounded-full bg-indigo-500/20 text-indigo-400 flex items-center justify-center hover:bg-indigo-500/40"><i className="fas fa-pen text-xs"></i></button>
+                      </div>
+                   </div>
+                   
+                   <div className="p-6 space-y-4 bg-slate-900/40">
+                      <div className="bg-slate-800 p-4 rounded-2xl shadow-sm border border-slate-700">
+                        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">Contact Info</span>
+                        <div className="font-semibold text-slate-200">{selectedAdminDetail.mobile}</div>
+                        <div className="text-sm text-slate-400 mt-1">{selectedAdminDetail.address}</div>
+                      </div>
+
+                      {selectedAdminDetail.identity && (
+                      <div className="bg-slate-800 p-4 rounded-2xl shadow-sm border border-slate-700">
+                        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">ID Number</span>
+                        <div className="font-mono text-slate-200 font-bold flex items-center gap-2">
+                            <i className="fas fa-id-card text-indigo-400"></i> {selectedAdminDetail.identity}
+                        </div>
+                      </div>
+                      )}
+
+                      <div className="mt-6">
+                        <h4 className="font-bold text-white mb-3 flex items-center gap-2">
+                            <i className="fas fa-briefcase text-slate-500"></i> Active Work Profile
+                        </h4>
+                        {getAdminWorkDetails(selectedAdminDetail.id).length === 0 ? (
+                            <div className="bg-slate-800 border border-dashed border-slate-600 rounded-2xl p-6 text-center">
+                                <p className="text-sm font-medium text-slate-400">Not assigned to any batch yet.</p>
+                            </div>
+                        ) : (
+                            <div className="space-y-3">
+                            {getAdminWorkDetails(selectedAdminDetail.id).map((work, idx) => (
+                                <div key={idx} className="bg-slate-800 p-4 rounded-2xl border border-indigo-500/30 shadow-sm relative overflow-hidden">
+                                <div className="absolute left-0 top-0 bottom-0 w-1 bg-indigo-500"></div>
+                                <p className="font-bold text-white text-sm mb-2">{work.courseName}</p>
+                                <div className="flex flex-wrap gap-1.5">
+                                    {work.batches.map(b => <span key={b} className="bg-indigo-500/20 text-indigo-300 text-xs font-bold px-2 py-1 rounded-md border border-indigo-500/30">Batch {b}</span>)}
+                                </div>
+                                </div>
+                            ))}
+                            </div>
+                        )}
+                      </div>
+                   </div>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {filteredAdmins.map(admin => (
+                    <div key={admin.id} onClick={() => setSelectedAdminDetail(admin)} className="bg-slate-800 p-4 rounded-[20px] premium-shadow border border-slate-700 flex items-center gap-4 cursor-pointer hover:border-indigo-500/50 transition-colors">
+                      <div className="w-12 h-12 bg-slate-700 text-white rounded-xl flex items-center justify-center font-bold text-lg">
+                        {admin.name.charAt(0).toUpperCase()}
+                      </div>
+                      <div className="flex-1">
+                        <h4 className="font-bold text-slate-200 text-sm md:text-base">{admin.name}</h4>
+                        <p className="text-xs text-slate-400 mt-0.5"><i className="fas fa-phone-alt text-[10px] mr-1"></i> {admin.mobile}</p>
+                      </div>
+                      <div className="w-8 h-8 rounded-full bg-slate-700 text-slate-400 flex items-center justify-center">
+                        <i className="fas fa-chevron-right text-xs"></i>
+                      </div>
+                    </div>
+                  ))}
+                  {filteredAdmins.length === 0 && !showForm && (
+                    <div className="text-center mt-16">
+                        <div className="w-24 h-24 bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-4 opacity-50 border border-slate-700">
+                            <i className="fas fa-users-slash text-4xl text-slate-500"></i>
+                        </div>
+                        <p className="text-slate-400 font-medium">No admins found</p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        }
+
+        /* ============================ POSITION TAB ============================ */
+        function PositionTab({ courses, admins }) {
+          const[selectedCourse, setSelectedCourse] = useState(null);
+
+          const calculatePositions = (courseId) => {
+            const course = courses.find(c => c.id === courseId);
+            if (!course) return[];
+
+            let adminStats = {}; 
+
+            course.batches.forEach(batch => {
+              batch.selectedAdmins.forEach(bAdmin => {
+                if (!adminStats[bAdmin.id]) {
+                  adminStats[bAdmin.id] = { totalAdmissions: 0, validBatchCount: 0 };
+                }
+                
+                if (bAdmin.admissionCount !== undefined && bAdmin.admissionCount !== null && bAdmin.admissionCount !== '') {
+                  const count = parseInt(bAdmin.admissionCount, 10);
+                  if (!isNaN(count)) {
+                    adminStats[bAdmin.id].totalAdmissions += count;
+                    adminStats[bAdmin.id].validBatchCount += 1;
+                  }
+                }
+              });
+            });
+
+            const rankingArray =[];
+            Object.keys(adminStats).forEach(adminId => {
+              const stats = adminStats[adminId];
+              const adminInfo = admins.find(a => a.id === adminId);
+              if (adminInfo) {
+                const avg = stats.validBatchCount > 0 ? (stats.totalAdmissions / stats.validBatchCount).toFixed(2) : 0;
+                rankingArray.push({
+                  adminName: adminInfo.name,
+                  avgAdmission: parseFloat(avg),
+                  totalAdmission: stats.totalAdmissions,
+                  batchCount: stats.validBatchCount
+                });
+              }
+            });
+
+            return rankingArray.sort((a, b) => b.avgAdmission - a.avgAdmission);
+          };
+
+          if (selectedCourse) {
+            const rankings = calculatePositions(selectedCourse.id);
+            
+            // Updated colors for dark theme
+            const rankStyles =[
+                "bg-amber-500/10 border-amber-500/30 shadow-amber-500/10",
+                "bg-slate-400/10 border-slate-400/30 shadow-slate-500/10",
+                "bg-orange-500/10 border-orange-500/30 shadow-orange-500/10"
+            ];
+            const rankIcons =[
+                "text-amber-400", "text-slate-300", "text-orange-400"
+            ];
+
+            return (
+              <div className="flex flex-col">
+                <button onClick={() => setSelectedCourse(null)} className="mb-4 flex items-center text-slate-300 font-bold bg-slate-800 px-4 py-2.5 rounded-full shadow-sm w-fit border border-slate-700 hover:bg-slate-700 transition-colors text-sm">
+                  <i className="fas fa-arrow-left mr-2"></i> Leaderboard
+                </button>
+                
+                <div className="bg-gradient-to-r from-indigo-700 via-purple-700 to-indigo-900 text-white flex justify-between items-center px-5 py-4 shadow-md z-20 relative overflow-hidden mb-6 rounded-2xl">
+                  <i className="fas fa-crown absolute right-4 top-4 text-6xl text-white opacity-10 rotate-12"></i>
+                  <div className="relative z-10">
+                      <h2 className="text-xl font-black mb-0.5">{selectedCourse.name}</h2>
+                      <p className="text-[10px] font-medium text-indigo-200 uppercase tracking-widest">Performance Ranking</p>
+                  </div>
+                </div>
+
+                <div className="space-y-3 pb-8">
+                  {rankings.length === 0 ? (
+                    <div className="bg-slate-800 rounded-2xl p-8 text-center border border-dashed border-slate-700">
+                        <i className="fas fa-chart-line text-4xl text-slate-600 mb-3"></i>
+                        <p className="text-slate-400 font-medium text-sm">No data available for calculation yet.</p>
+                    </div>
+                  ) : (
+                    rankings.map((rank, index) => {
+                      const isTop3 = index < 3;
+                      return (
+                      <div key={index} className={`flex items-center p-4 rounded-[20px] relative overflow-hidden border transition-all ${isTop3 ? rankStyles[index] + ' shadow-md scale-[1.02] z-10 my-4' : 'bg-slate-800 border-slate-700 shadow-sm'}`}>
+                        
+                        <div className="w-10 font-black text-center flex flex-col items-center justify-center">
+                            {isTop3 ? <i className={`fas fa-medal text-2xl ${rankIcons[index]}`}></i> : <span className="text-slate-500 text-lg">#{index + 1}</span>}
+                        </div>
+                        
+                        <div className="flex-1 ml-3 border-l border-slate-600/50 pl-4">
+                          <h4 className={`font-bold text-sm ${isTop3 ? 'text-white' : 'text-slate-200'}`}>{rank.adminName}</h4>
+                          <div className="flex items-center gap-1 mt-1">
+                            <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Avg:</span>
+                            <span className={`font-black text-sm ${isTop3 ? rankIcons[index] : 'text-indigo-400'}`}>{rank.avgAdmission}</span>
+                          </div>
+                        </div>
+                        
+                        <div className="text-right bg-slate-900/50 backdrop-blur-sm p-2 rounded-xl border border-slate-700/50 shadow-sm">
+                          <p className="font-bold text-slate-200 text-sm">{rank.totalAdmission}</p>
+                          <p className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">{rank.batchCount} Batches</p>
+                        </div>
+                      </div>
+                    )})
+                  )}
+                </div>
+              </div>
+            );
+          }
+
+          return (
+            <div className="space-y-4">
+              <div className="text-center mb-8 pt-4">
+                  <div className="w-16 h-16 bg-indigo-500/20 rounded-full flex items-center justify-center mx-auto mb-3 text-indigo-400 shadow-inner">
+                    <i className="fas fa-trophy text-2xl"></i>
+                  </div>
+                  <h2 className="font-bold text-xl text-white">Rankings</h2>
+                  <p className="text-xs text-slate-400 mt-1 font-medium">Select a course to view admin performance</p>
+              </div>
+
+              <div className="space-y-3">
+              {courses.map(course => (
+                <div 
+                  key={course.id} 
+                  onClick={() => setSelectedCourse(course)}
+                  className="bg-slate-800 p-5 rounded-[20px] premium-shadow border border-slate-700 cursor-pointer hover:border-indigo-500/50 hover:scale-[1.02] transition-all flex justify-between items-center group"
+                >
+                  <div className="flex items-center gap-4">
+                    <div className="w-10 h-10 rounded-full bg-slate-700 border border-slate-600 flex items-center justify-center text-slate-400 group-hover:bg-indigo-500/20 group-hover:text-indigo-400 transition-colors">
+                        <i className="fas fa-book-open text-sm"></i>
+                    </div>
+                    <span className="font-bold text-slate-200 text-sm md:text-base">{course.name}</span>
+                  </div>
+                  <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center group-hover:bg-indigo-600 group-hover:text-white text-slate-400 transition-all">
+                    <i className="fas fa-arrow-right text-xs"></i>
+                  </div>
+                </div>
+              ))}
+              </div>
+              {courses.length === 0 && <p className="text-center text-slate-500 text-sm mt-10">No courses available.</p>}
+            </div>
+          );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
